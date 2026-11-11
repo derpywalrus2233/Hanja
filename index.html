@@ -251,13 +251,13 @@ const srcLabel=r=>r==='PDF'?'PDF':r+'회';
 function deckCards(deck){
   const rm=removed();
   if(deck.kind==='round') return CARDS.filter(c=>c.t==='s'&&c.r===deck.r&&!rm.has(c.id));
-  if(deck.kind==='wrong') return S.wrong.map(id=>byId[id]).filter(c=>c&&!rm.has(c.id));
+  if(deck.kind==='wrong') return S.wrong.map(id=>byId[id]).filter(c=>c&&!rm.has(c.id)&&((c.t==='w')===(deck.p===2)));
   if(deck.kind==='w') return WCARDS.filter(c=>!rm.has(c.id)&&(deck.r==='all'||c.src.some(s=>deck.r==='PDF'?s==='PDF':s.startsWith(deck.r+'회'))));
   return CARDS.filter(c=>c.t===deck.kind&&(deck.r==='all'||c.r===deck.r)&&!rm.has(c.id));
 }
 function deckName(deck){
   if(deck.kind==='round') return deck.r+'회 단자';
-  if(deck.kind==='wrong') return '오답';
+  if(deck.kind==='wrong') return deck.p===2?'한자어 오답':'한자 오답';
   if(deck.kind==='w') return '한자어 표기'+(deck.r==='all'?'':' · '+srcLabel(deck.r));
   const base=deck.kind==='m'?'유사 모양 한자':'같은 독음 한자';
   return deck.r==='all'?base:base+' · '+deck.r+'회';
@@ -284,12 +284,14 @@ function renderHome(){
   const fm=ui.filter.m==='all'?'all':+ui.filter.m, fy=ui.filter.y==='all'?'all':+ui.filter.y;
   const nm=deckCards({kind:'m',r:fm}).length, ny=deckCards({kind:'y',r:fy}).length;
   const nw=deckCards({kind:'w',r:ui.filter.w}).length;
-  const wl=deckCards({kind:'wrong'});
+  const wl1=deckCards({kind:'wrong',p:1}), wl2=deckCards({kind:'wrong',p:2});
+  const wrow=(id,wl,name,small)=>`<button class="row wrong" id="${id}" ${wl.length?'':'disabled'}><span class="glyphs">${esc(wl.slice(0,4).map(glyphOf).join(' ').slice(0,6))||'—'}</span><span class="txt"><b>${name}</b><small>${wl.length?'"쉬움"을 누르면 오답에서 빠집니다':small}</small></span><span class="cnt">${wl.length}${id==='goWrong2'?'개':'장'}</span></button>`;
   const remList=S.removed.map(id=>byId[id]).filter(Boolean);
   $('#app').innerHTML=`
   <header class="top"><div><h1>고려대 3급 한자 카드</h1><p class="sub">기출 50·40·30·20·10회 Part 1 한자 · Part 2 한자어</p></div>${dday()?`<span class="dday">${dday()}</span>`:''}</header>
   <section><h2>오답</h2><div class="rows">
-    <button class="row wrong" id="goWrong" ${wl.length?'':'disabled'}><span class="glyphs">${esc(wl.slice(0,4).map(glyphOf).join(' ').slice(0,6))||'—'}</span><span class="txt"><b>오답 복습</b><small>${wl.length?'"쉬움"을 누르면 오답에서 빠집니다':'"어려움"으로 고른 카드가 세션이 끝나면 여기 모입니다'}</small></span><span class="cnt">${wl.length}장</span></button>
+    ${wrow('goWrong1',wl1,'한자 오답','Part 1에서 "어려움"이나 틀린 카드가 여기 모입니다')}
+    ${wrow('goWrong2',wl2,'한자어 오답','Part 2 퀴즈·지문에서 틀린 한자어가 여기 모입니다')}
   </div></section>
   <section><h2>회차별 단자</h2><div class="tiles">${tiles}</div></section>
   <section><h2>유사 모양 한자 · 문항 11~20</h2>${chipRow('m')}<div class="rows">
@@ -311,7 +313,7 @@ function renderHome(){
   document.querySelectorAll('[data-round]').forEach(b=>b.onclick=()=>start({kind:'round',r:+b.dataset.round}));
   document.querySelectorAll('[data-chip]').forEach(b=>b.onclick=()=>{ui.filter[b.dataset.chip]=b.dataset.r;renderHome();});
   $('#goM').onclick=()=>start({kind:'m',r:fm}); $('#goY').onclick=()=>start({kind:'y',r:fy});
-  $('#goWrong').onclick=()=>start({kind:'wrong'});
+  $('#goWrong1').onclick=()=>start({kind:'wrong',p:1}); $('#goWrong2').onclick=()=>start({kind:'wrong',p:2});
   document.querySelectorAll('[data-wsrc]').forEach(b=>b.onclick=()=>{ui.filter.w=b.dataset.wsrc;renderHome();});
   document.querySelectorAll('[data-wn]').forEach(b=>b.onclick=()=>{ui.wn=+b.dataset.wn;renderHome();});
   $('#goW').onclick=()=>start({kind:'w',r:ui.filter.w,n:ui.wn});
@@ -441,6 +443,7 @@ function finish(toHome){
 }
 function renderSummary(){
   const s=ses; const isW=s.deck.kind==='wrong';
+  const wp=isW?s.deck.p:s.deck.kind==='w'?2:1, wd={kind:'wrong',p:wp}, wn=wp===2?'한자어 오답':'한자 오답';
   const hardIds=isW?[]:[...s.hard];
   $('#app').innerHTML=`
   <div class="bar"><span class="name">${esc(deckName(s.deck))} · 세션 끝</span></div>
@@ -451,15 +454,15 @@ function renderSummary(){
       <div class="r-hard"><b>${s.counts.hard}</b><small>어려움</small></div>
     </div>
     ${s.quiz.ok+s.quiz.bad?`<p style="margin:0">퀴즈: ${s.quiz.ok+s.quiz.bad}문제 중 ${s.quiz.ok}개 정답</p>`:''}
-    ${isW?`<p style="margin:0">오답에서 ${s.clearedWrong.length}장을 뺐습니다. 남은 오답은 ${deckCards({kind:'wrong'}).length}장입니다.</p>`
-      :hardIds.length?`<p style="margin:0">어려움으로 고르거나 틀린 ${hardIds.length}장을 오답에 담았습니다${s.added.length<hardIds.length?' (이미 있던 카드 포함)':''}.</p><div class="hardlist" lang="zh-Hant">${esc(hardIds.map(id=>glyphOf(byId[id])).join(' '))}</div>`
+    ${isW?`<p style="margin:0">오답에서 ${s.clearedWrong.length}장을 뺐습니다. 남은 ${wn}은 ${deckCards(wd).length}장입니다.</p>`
+      :hardIds.length?`<p style="margin:0">어려움으로 고르거나 틀린 ${hardIds.length}장을 ${wn}에 담았습니다${s.added.length<hardIds.length?' (이미 있던 카드 포함)':''}.</p><div class="hardlist" lang="zh-Hant">${esc(hardIds.map(id=>glyphOf(byId[id])).join(' '))}</div>`
       :'<p style="margin:0">오답에 담을 카드가 없습니다.</p>'}
   </div>
   <div class="actions">
-    ${deckCards({kind:'wrong'}).length?'<button class="primary" id="sw">오답 복습</button>':''}
+    ${deckCards(wd).length?`<button class="primary" id="sw">${wn} 복습</button>`:''}
     <button id="again">이 덱 다시</button><button id="home">목록으로</button>
   </div>`;
-  $('#sw')&&($('#sw').onclick=()=>start({kind:'wrong'}));
+  $('#sw')&&($('#sw').onclick=()=>start(wd));
   $('#again').onclick=()=>{ if(deckCards(s.deck).length) start(s.deck); else {ui.view='home';render();} };
   $('#home').onclick=()=>{ses=null;ui.view='home';render();};
 }
