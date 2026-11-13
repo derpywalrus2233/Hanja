@@ -217,7 +217,7 @@ const KEY='hanja3-cards-v1';
 let S={removed:[],wrong:[],at:0};
 try{const s=JSON.parse(localStorage.getItem(KEY)||'null'); if(s&&Array.isArray(s.removed)) S=s;}catch(e){}
 let storeMode='local', dbDoc=null, writing=Promise.resolve(), saveTimer=null;
-let ui={view:'home',shuffle:true,filter:{m:'all',y:'all',w:'all'},wn:20,showRemoved:false,sq:'',st:false,hide:false,pi:0,pshow:false};
+let ui={view:'home',shuffle:true,filter:{m:'all',y:'all',w:'all',w1t:'all',w1r:'all',w2r:'all'},wn:20,showRemoved:false,sq:'',st:false,hide:false,pi:0,pshow:false};
 try{ui.shuffle=localStorage.getItem(KEY+'-shuffle')!=='0'}catch(e){}
 
 const removed=()=>new Set(S.removed), wrong=()=>new Set(S.wrong);
@@ -251,13 +251,20 @@ const srcLabel=r=>r==='PDF'?'PDF':r+'회';
 function deckCards(deck){
   const rm=removed();
   if(deck.kind==='round') return CARDS.filter(c=>c.t==='s'&&c.r===deck.r&&!rm.has(c.id));
-  if(deck.kind==='wrong') return S.wrong.map(id=>byId[id]).filter(c=>c&&!rm.has(c.id)&&((c.t==='w')===(deck.p===2)));
+  if(deck.kind==='wrong') return S.wrong.map(id=>byId[id]).filter(c=>c&&!rm.has(c.id)&&((c.t==='w')===(deck.p===2))&&wrongMatch(c,deck));
   if(deck.kind==='w') return WCARDS.filter(c=>!rm.has(c.id)&&(deck.r==='all'||c.src.some(s=>deck.r==='PDF'?s==='PDF':s.startsWith(deck.r+'회'))));
   return CARDS.filter(c=>c.t===deck.kind&&(deck.r==='all'||c.r===deck.r)&&!rm.has(c.id));
 }
+function wrongMatch(c,deck){
+  const r=deck.r&&deck.r!=='all'?String(deck.r):null;
+  if(c.t==='w') return !r||c.src.some(s=>r==='PDF'?s==='PDF':s.startsWith(r+'회'));
+  if(deck.ty&&deck.ty!=='all'&&c.t!==deck.ty) return false;
+  return !r||String(c.r)===r;
+}
+const TYNAME={s:'단자',m:'유사 모양',y:'같은 독음'};
 function deckName(deck){
   if(deck.kind==='round') return deck.r+'회 단자';
-  if(deck.kind==='wrong') return deck.p===2?'한자어 오답':'한자 오답';
+  if(deck.kind==='wrong'){ const f=[deck.ty&&deck.ty!=='all'?TYNAME[deck.ty]:'',deck.r&&deck.r!=='all'?srcLabel(deck.r):''].filter(Boolean).join(' · '); return (deck.p===2?'한자어 오답':'한자 오답')+(f?' · '+f:''); }
   if(deck.kind==='w') return '한자어 표기'+(deck.r==='all'?'':' · '+srcLabel(deck.r));
   const base=deck.kind==='m'?'유사 모양 한자':'같은 독음 한자';
   return deck.r==='all'?base:base+' · '+deck.r+'회';
@@ -284,14 +291,21 @@ function renderHome(){
   const fm=ui.filter.m==='all'?'all':+ui.filter.m, fy=ui.filter.y==='all'?'all':+ui.filter.y;
   const nm=deckCards({kind:'m',r:fm}).length, ny=deckCards({kind:'y',r:fy}).length;
   const nw=deckCards({kind:'w',r:ui.filter.w}).length;
-  const wl1=deckCards({kind:'wrong',p:1}), wl2=deckCards({kind:'wrong',p:2});
+  const wd1={kind:'wrong',p:1,ty:ui.filter.w1t,r:ui.filter.w1r}, wd2={kind:'wrong',p:2,r:ui.filter.w2r};
+  const wl1=deckCards(wd1), wl2=deckCards(wd2);
+  const tot1=deckCards({kind:'wrong',p:1}).length, tot2=deckCards({kind:'wrong',p:2}).length;
+  const wchips=(k,list)=>`<div class="chips" role="group">${list.map(([v,l])=>`<button class="chip" data-wf="${k}" data-v="${v}" aria-pressed="${ui.filter[k]===v}">${l}</button>`).join('')}</div>`;
+  const rlist=[['all','전체'],...ROUNDS.map(r=>[String(r),r+'회'])];
   const wrow=(id,wl,name,small)=>`<button class="row wrong" id="${id}" ${wl.length?'':'disabled'}><span class="glyphs">${esc(wl.slice(0,4).map(glyphOf).join(' ').slice(0,6))||'—'}</span><span class="txt"><b>${name}</b><small>${wl.length?'"쉬움"을 누르면 오답에서 빠집니다':small}</small></span><span class="cnt">${wl.length}${id==='goWrong2'?'개':'장'}</span></button>`;
   const remList=S.removed.map(id=>byId[id]).filter(Boolean);
   $('#app').innerHTML=`
   <header class="top"><div><h1>고려대 3급 한자 카드</h1><p class="sub">기출 50·40·30·20·10회 Part 1 한자 · Part 2 한자어</p></div>${dday()?`<span class="dday">${dday()}</span>`:''}</header>
-  <section><h2>오답</h2><div class="rows">
-    ${wrow('goWrong1',wl1,'한자 오답','Part 1에서 "어려움"이나 틀린 카드가 여기 모입니다')}
-    ${wrow('goWrong2',wl2,'한자어 오답','Part 2 퀴즈·지문에서 틀린 한자어가 여기 모입니다')}
+  <section><h2>한자 오답 · Part 1</h2>
+    ${tot1?wchips('w1t',[['all','전체 유형'],['s','단자'],['m','유사 모양'],['y','같은 독음']])+wchips('w1r',[['all','전체 회차'],...rlist.slice(1)]):''}
+    <div class="rows">${wrow('goWrong1',wl1,'한자 오답',tot1?'이 조건에 맞는 오답이 없습니다':'Part 1에서 "어려움"이나 틀린 카드가 여기 모입니다')}</div></section>
+  <section><h2>한자어 오답 · Part 2</h2>
+    ${tot2?wchips('w2r',[['all','전체 회차'],...rlist.slice(1),['PDF','PDF']]):''}
+    <div class="rows">${wrow('goWrong2',wl2,'한자어 오답',tot2?'이 조건에 맞는 오답이 없습니다':'Part 2 퀴즈·지문에서 틀린 한자어가 여기 모입니다')}
   </div></section>
   <section><h2>회차별 단자</h2><div class="tiles">${tiles}</div></section>
   <section><h2>유사 모양 한자 · 문항 11~20</h2>${chipRow('m')}<div class="rows">
@@ -313,7 +327,8 @@ function renderHome(){
   document.querySelectorAll('[data-round]').forEach(b=>b.onclick=()=>start({kind:'round',r:+b.dataset.round}));
   document.querySelectorAll('[data-chip]').forEach(b=>b.onclick=()=>{ui.filter[b.dataset.chip]=b.dataset.r;renderHome();});
   $('#goM').onclick=()=>start({kind:'m',r:fm}); $('#goY').onclick=()=>start({kind:'y',r:fy});
-  $('#goWrong1').onclick=()=>start({kind:'wrong',p:1}); $('#goWrong2').onclick=()=>start({kind:'wrong',p:2});
+  $('#goWrong1').onclick=()=>start(wd1); $('#goWrong2').onclick=()=>start(wd2);
+  document.querySelectorAll('[data-wf]').forEach(b=>b.onclick=()=>{ui.filter[b.dataset.wf]=b.dataset.v;renderHome();});
   document.querySelectorAll('[data-wsrc]').forEach(b=>b.onclick=()=>{ui.filter.w=b.dataset.wsrc;renderHome();});
   document.querySelectorAll('[data-wn]').forEach(b=>b.onclick=()=>{ui.wn=+b.dataset.wn;renderHome();});
   $('#goW').onclick=()=>start({kind:'w',r:ui.filter.w,n:ui.wn});
@@ -443,7 +458,7 @@ function finish(toHome){
 }
 function renderSummary(){
   const s=ses; const isW=s.deck.kind==='wrong';
-  const wp=isW?s.deck.p:s.deck.kind==='w'?2:1, wd={kind:'wrong',p:wp}, wn=wp===2?'한자어 오답':'한자 오답';
+  const wp=isW?s.deck.p:s.deck.kind==='w'?2:1, wd=isW?s.deck:{kind:'wrong',p:wp}, wn=wp===2?'한자어 오답':'한자 오답';
   const hardIds=isW?[]:[...s.hard];
   $('#app').innerHTML=`
   <div class="bar"><span class="name">${esc(deckName(s.deck))} · 세션 끝</span></div>
